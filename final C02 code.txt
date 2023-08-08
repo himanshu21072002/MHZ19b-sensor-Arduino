@@ -1,0 +1,99 @@
+#include<SPI.h>
+#include<SD.h>
+#include <Wire.h> 
+#include <Arduino.h> 
+#include <MHZ19.h>                                      
+#include <SoftwareSerial.h>  
+#include "RTClib.h";
+#define RX_PIN 3                                        
+#define TX_PIN 5                                        
+#define BAUDRATE 9600 
+
+MHZ19 myMHZ19; 
+RTC_DS1307 RTC;
+
+SoftwareSerial mySerial(RX_PIN, TX_PIN);  
+DateTime now;  
+int count=0;
+int arr[10]={0};   //for storing 10 values for rolling mean
+int prev=0;        //for storing previous value of CO2 to calculate rate of change of CO2
+
+void writeinfile(int x){
+  int curr=x;             //for storing current current value of CO2 to find the rate of change of CO2
+   if(count==10) count =0;     
+    arr[count]=x;
+    int sum=0;
+    for(int i=0;i<=9;++i)
+      sum=sum+arr[i];
+      count++;
+  now = RTC.now();              //for time
+  File myfile;                  // declare file variable
+    myfile=SD.open("test.txt",FILE_WRITE);         //opening the file to write
+     
+    if(myfile){                                     // writing in file if file exist
+      myfile.print(now.hour(), DEC);     myfile.print(':');
+      myfile.print(now.minute(), DEC);   myfile.print(':');
+      myfile.print(now.second(), DEC);   
+      myfile.print("= CO2= "); myfile.print(x);myfile.print("= ");
+      myfile.println(sum/10.0);
+    myfile.close();}
+    else Serial.println('could not open file');
+if((curr-prev)/2>=40)                               //calculating slope and checking condition to turn on yellow(warning) light
+  digitalWrite(6,HIGH);
+  else 
+  digitalWrite(6,LOW);
+
+prev=x;
+if(sum/10.0>1500){                                         //checking condition of rolling mean to turn on red(Alert) light
+  digitalWrite(7,HIGH);
+   tone(2,450);                                         //code for buzzer
+  delay(1000);
+  noTone(2);
+  delay(500);
+    }
+  else
+  digitalWrite(7,LOW);
+}
+
+void setup() {
+pinMode(7,OUTPUT);                                        //declaring pins for lights
+pinMode(6,OUTPUT);
+Serial.begin(9600); 
+ mySerial.begin(BAUDRATE);                               
+  myMHZ19.begin(mySerial);                          
+ myMHZ19.autoCalibration(); 
+  RTC.begin();
+   if (!RTC.isrunning()) {                                //checking if RTC is running or not
+    Serial.println(F("RTC is NOT running!"));
+    RTC.adjust(DateTime(__DATE__, __TIME__));
+  } 
+  RTC.adjust(DateTime(__DATE__, __TIME__));
+
+while(1){if(!SD.begin(10)){                                       //checking card initialisation
+  Serial.println(F("could not initialize card !!!"));
+}
+else break;
+}
+ now = RTC.now();
+  File myfile;
+    myfile=SD.open("test.txt",FILE_WRITE); 
+     
+    if(myfile){                                               //writing date in file 
+      myfile.print(now.year(),DEC);
+       myfile.print('/');
+       myfile.print(now.month(),DEC);
+       myfile.print('/');
+       myfile.println(now.day(),DEC);
+    myfile.close();}
+    else Serial.println('could not open file');
+}
+
+void loop() {  
+static int CO2=0;
+CO2 = myMHZ19.getCO2();                                         //getting value of CO2 from sensor
+Serial.print(F("CO2 (ppm): ")); 
+Serial.println(CO2); 
+writeinfile(CO2);                                         //calling function to write the data in file
+delay(2000); 
+
+}
